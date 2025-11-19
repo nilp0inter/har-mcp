@@ -51,7 +51,7 @@ Alternatively you can run thr server directly with `go run`.
       "command": "go",
       "args": [
         "run",
-        "github.com/tjamet/har-mcp/cmd/har-mcp@main"
+        "github.com/nilp0inter/har-mcp/cmd/har-mcp@main"
       ]
     }
   }
