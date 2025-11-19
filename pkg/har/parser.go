@@ -140,7 +140,7 @@ type RequestDetails struct {
 	StartedDateTime string        `json:"started_datetime"`
 	Time            float64       `json:"time"`
 	Request         *RequestInfo  `json:"request"`
-	Response        *har.Response `json:"response"`
+	Response        *ResponseInfo `json:"response"`
 	Cache           *har.Cache    `json:"cache,omitempty"`
 	Timings         *har.Timings  `json:"timings,omitempty"`
 	ServerIPAddress string        `json:"serverIPAddress,omitempty"`
@@ -148,7 +148,7 @@ type RequestDetails struct {
 	Comment         string        `json:"comment,omitempty"`
 }
 
-// RequestInfo is like har.Request but with redacted auth headers
+// RequestInfo is like har.Request but with redacted auth headers and decoded postData
 type RequestInfo struct {
 	Method      string            `json:"method"`
 	URL         string            `json:"url"`
@@ -156,9 +156,37 @@ type RequestInfo struct {
 	Cookies     []har.Cookie      `json:"cookies"`
 	Headers     []har.Header      `json:"headers"`
 	QueryString []har.QueryString `json:"queryString"`
-	PostData    *har.PostData     `json:"postData,omitempty"`
+	PostData    *PostDataInfo     `json:"postData,omitempty"`
 	HeadersSize int64             `json:"headersSize"`
 	BodySize    int64             `json:"bodySize"`
+}
+
+// ResponseInfo is like har.Response but with decoded content text
+type ResponseInfo struct {
+	Status      int          `json:"status"`
+	StatusText  string       `json:"statusText"`
+	HTTPVersion string       `json:"httpVersion"`
+	Cookies     []har.Cookie `json:"cookies"`
+	Headers     []har.Header `json:"headers"`
+	Content     *ContentInfo `json:"content"`
+	RedirectURL string       `json:"redirectURL"`
+	HeadersSize int64        `json:"headersSize"`
+	BodySize    int64        `json:"bodySize"`
+}
+
+// ContentInfo is like har.Content but with decoded text
+type ContentInfo struct {
+	Size     int64  `json:"size"`
+	MimeType string `json:"mimeType"`
+	Text     string `json:"text,omitempty"`
+	Encoding string `json:"encoding,omitempty"`
+}
+
+// PostDataInfo is like har.PostData but with decoded text
+type PostDataInfo struct {
+	MimeType string      `json:"mimeType"`
+	Text     string      `json:"text,omitempty"`
+	Params   []har.Param `json:"params,omitempty"`
 }
 
 // GetRequestDetails returns the full details of a request by ID with auth headers redacted
@@ -175,7 +203,7 @@ func (p *Parser) GetRequestDetails(harData *har.HAR, requestID string) (*Request
 
 	entry := harData.Log.Entries[index]
 
-	// Create request info with redacted headers
+	// Create request info with redacted headers and decoded postData
 	requestInfo := &RequestInfo{
 		Method:      entry.Request.Method,
 		URL:         entry.Request.URL,
@@ -183,22 +211,71 @@ func (p *Parser) GetRequestDetails(harData *har.HAR, requestID string) (*Request
 		Cookies:     entry.Request.Cookies,
 		Headers:     p.redactAuthHeaders(entry.Request.Headers),
 		QueryString: entry.Request.QueryString,
-		PostData:    entry.Request.PostData,
+		PostData:    p.convertPostData(entry.Request.PostData),
 		HeadersSize: entry.Request.HeadersSize,
 		BodySize:    entry.Request.BodySize,
 	}
+
+	// Create response info with decoded content
+	responseInfo := p.convertResponse(entry.Response)
 
 	details := &RequestDetails{
 		RequestID:       requestID,
 		StartedDateTime: entry.StartedDateTime.Format(time.RFC3339),
 		Time:            float64(entry.Time),
 		Request:         requestInfo,
-		Response:        entry.Response,
+		Response:        responseInfo,
 		Cache:           entry.Cache,
 		Timings:         entry.Timings,
 	}
 
 	return details, nil
+}
+
+// convertPostData converts har.PostData to PostDataInfo with decoded text
+func (p *Parser) convertPostData(postData *har.PostData) *PostDataInfo {
+	if postData == nil {
+		return nil
+	}
+
+	return &PostDataInfo{
+		MimeType: postData.MimeType,
+		Text:     string(postData.Text),
+		Params:   postData.Params,
+	}
+}
+
+// convertResponse converts har.Response to ResponseInfo with decoded content
+func (p *Parser) convertResponse(response *har.Response) *ResponseInfo {
+	if response == nil {
+		return nil
+	}
+
+	return &ResponseInfo{
+		Status:      response.Status,
+		StatusText:  response.StatusText,
+		HTTPVersion: response.HTTPVersion,
+		Cookies:     response.Cookies,
+		Headers:     response.Headers,
+		Content:     p.convertContent(response.Content),
+		RedirectURL: response.RedirectURL,
+		HeadersSize: response.HeadersSize,
+		BodySize:    response.BodySize,
+	}
+}
+
+// convertContent converts har.Content to ContentInfo with decoded text
+func (p *Parser) convertContent(content *har.Content) *ContentInfo {
+	if content == nil {
+		return nil
+	}
+
+	return &ContentInfo{
+		Size:     content.Size,
+		MimeType: content.MimeType,
+		Text:     string(content.Text),
+		Encoding: content.Encoding,
+	}
 }
 
 // redactAuthHeaders redacts sensitive authentication headers

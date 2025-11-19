@@ -544,6 +544,63 @@ func TestParseBase64Content(t *testing.T) {
 	assert.Equal(t, []byte("Hello World"), entry.Response.Content.Text)
 }
 
+func TestGetRequestDetailsWithBase64Content(t *testing.T) {
+	// HAR with base64 encoded content
+	harData := `{
+		"log": {
+			"version": "1.2",
+			"creator": {
+				"name": "test-creator",
+				"version": "1.0"
+			},
+			"entries": [
+				{
+					"startedDateTime": "2023-01-01T00:00:00.000Z",
+					"time": 100,
+					"request": {
+						"method": "GET",
+						"url": "https://example.com/image",
+						"httpVersion": "HTTP/1.1",
+						"cookies": [],
+						"headers": [],
+						"queryString": [],
+						"headersSize": 150,
+						"bodySize": 0
+					},
+					"response": {
+						"status": 200,
+						"statusText": "OK",
+						"httpVersion": "HTTP/1.1",
+						"cookies": [],
+						"headers": [],
+						"content": {
+							"size": 11,
+							"mimeType": "image/png",
+							"text": "SGVsbG8gV29ybGQ=",
+							"encoding": "base64"
+						},
+						"redirectURL": "",
+						"headersSize": 200,
+						"bodySize": 11
+					}
+				}
+			]
+		}
+	}`
+
+	parser := NewParser()
+	reader := strings.NewReader(harData)
+	archive, err := parser.Parse(reader)
+	require.NoError(t, err)
+
+	details, err := parser.GetRequestDetails(archive, "request_0")
+	require.NoError(t, err)
+
+	// Verify that base64 content is decoded to readable text in details
+	assert.NotNil(t, details.Response.Content)
+	assert.Equal(t, "Hello World", details.Response.Content.Text)
+}
+
 func TestParseComplexHAR(t *testing.T) {
 	// HAR with mixed content types and additional fields
 	harData := `{
@@ -662,4 +719,17 @@ func TestParseComplexHAR(t *testing.T) {
 	}
 	require.NotNil(t, authHeader)
 	assert.Equal(t, "[REDACTED]", authHeader.Value)
+
+	// Check that cookies are included in the details
+	assert.Len(t, details.Request.Cookies, 1)
+	assert.Equal(t, "session", details.Request.Cookies[0].Name)
+	assert.Equal(t, "abc123", details.Request.Cookies[0].Value)
+
+	// Check that response content text is decoded (not base64)
+	assert.NotNil(t, details.Response.Content)
+	assert.Equal(t, `{"id": 123, "status": "ok"}`, details.Response.Content.Text)
+
+	// Check that postData text is decoded (not base64)
+	assert.NotNil(t, details.Request.PostData)
+	assert.Equal(t, `{"data": "test"}`, details.Request.PostData.Text)
 }
